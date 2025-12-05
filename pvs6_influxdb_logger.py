@@ -40,7 +40,11 @@ class PVS6InfluxLogger:
         # Setup session
         self.session = requests.Session()
         self.session.verify = False  # Disable SSL verification for PVS
-        self.session.timeout = (5, 10)  # Connect and read timeouts
+
+        # Default timeouts (connect, read) used for all network calls
+        self.connect_timeout = 5
+        self.read_timeout = 10
+        self.request_timeout = (self.connect_timeout, self.read_timeout)
         
         # Authentication
         self.auth_token = None
@@ -50,7 +54,10 @@ class PVS6InfluxLogger:
         """Authenticate with the PVS using basic auth."""
         try:
             # First, get the PVS serial number
-            serial_response = self.session.get(f"https://{self.pvs_host}/vars?name=/sys/info/serialnum")
+            serial_response = self.session.get(
+                f"https://{self.pvs_host}/vars?name=/sys/info/serialnum",
+                timeout=self.request_timeout,
+            )
             if serial_response.status_code != 200:
                 logger.warning(f"Failed to get serial number: {serial_response.status_code}")
                 if self.default_serial:
@@ -82,7 +89,11 @@ class PVS6InfluxLogger:
             login_url = f"https://{self.pvs_host}/auth?login"
             headers = {"Authorization": f"basic {auth_token}"}
             
-            response = self.session.get(login_url, headers=headers)
+            response = self.session.get(
+                login_url,
+                headers=headers,
+                timeout=self.request_timeout,
+            )
             if response.status_code == 200:
                 data = response.json()
                 if "session" in data:
@@ -106,7 +117,10 @@ class PVS6InfluxLogger:
         """Get all data from the PVS using the varserver API."""
         try:
             # Get all variables using the match parameter
-            response = self.session.get(f"https://{self.pvs_host}/vars?match=/&fmt=obj")
+            response = self.session.get(
+                f"https://{self.pvs_host}/vars?match=/&fmt=obj",
+                timeout=self.request_timeout,
+            )
             if response.status_code != 200:
                 logger.error(f"Failed to get data: {response.status_code}")
                 return None
@@ -236,7 +250,12 @@ class PVS6InfluxLogger:
         params = {"db": self.influx_db, "precision": INFLUX_PRECISION}
         
         try:
-            response = self.session.post(self.influx_url, params=params, data=payload.encode("utf-8"))
+            response = self.session.post(
+                self.influx_url,
+                params=params,
+                data=payload.encode("utf-8"),
+                timeout=self.request_timeout,
+            )
             response.raise_for_status()
             logger.info(f"Successfully wrote {len(lines)} lines to InfluxDB")
         except requests.exceptions.HTTPError as e:
@@ -543,8 +562,8 @@ class PVS6InfluxLogger:
             except KeyboardInterrupt:
                 logger.info("Stopping data collection...")
                 break
-            except Exception as e:
-                logger.error(f"Error in continuous run: {e}")
+            except Exception:
+                logger.exception("Error in continuous run")
                 time.sleep(interval)
 
     def test_influxdb_connection(self):
